@@ -8,7 +8,7 @@ on:
   pull_request:
 
 env:
-  SPRING_PROFILES_ACTIVE: test
+  SPRING_PROFILES_ACTIVE: prod
   APP_SECRET_KEY: test-ci-secret-should-be-at-least-32-chars!!
   APP_EXPIRATION_TIME: 3600000
 
@@ -82,7 +82,8 @@ jobs:
           path: build
 
       - name: Prepare SSH key
-        run: |
+        run:
+          whoami
           mkdir -p ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger
           chmod 600 ~/.ssh/hostinger
