@@ -94,6 +94,10 @@ jobs:
           scp -i ~/.ssh/hostinger -P "$DEPLOY_PORT" build/gdd-api-*.jar "$DEPLOY_USER@$DEPLOY_HOST:/tmp/gdd-api.jar"
           scp -i ~/.ssh/hostinger -P "$DEPLOY_PORT" scripts/remote/deploy-gdd-api.sh "$DEPLOY_USER@$DEPLOY_HOST:/tmp/deploy-gdd-api.sh"
 
+      - name: Check remote sudo
+        run: |
+          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; echo Remote user: \$(whoami); sudo -n systemctl status \"$DEPLOY_SERVICE\" --no-pager"
+
       - name: Restart application service
         run: |
           ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
