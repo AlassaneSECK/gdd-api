@@ -82,7 +82,7 @@ jobs:
           path: build
 
       - name: Prepare SSH key
-        run:
+        run: |
           whoami
           mkdir -p ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger
