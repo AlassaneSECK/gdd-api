@@ -8,7 +8,7 @@ on:
   pull_request:
 
 env:
-  SPRING_PROFILES_ACTIVE: prod
+  SPRING_PROFILES_ACTIVE: test
   APP_SECRET_KEY: test-ci-secret-should-be-at-least-32-chars!!
   APP_EXPIRATION_TIME: 3600000
 
@@ -35,75 +35,81 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare image metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          distribution: temurin
-          java-version: 17
-          cache: maven
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,enable=true,value=${{ github.sha }}
+            type=ref,event=branch,enable=${{ github.event_name != 'pull_request' }}
+          flavor: |
+            latest=true
 
-      - name: Make Maven Wrapper executable
-        run: chmod +x mvnw
-
-      - name: Package application
-        run: ./mvnw -B clean package -DskipTests
-
-      - name: Archive packaged jar
+      - name: Login to GHCR
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: docker/login-action@v3
         with:
-          name: gdd-api-jar
-          path: target/gdd-api-*.jar
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     needs: build
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    environment:
+      name: production
     env:
       DEPLOY_HOST: ${{ secrets.HOSTINGER_HOST }}
-      DEPLOY_PORT: ${{ secrets.HOSTINGER_PORT || '22' }}
+      DEPLOY_PORT: ${{ secrets.HOSTINGER_PORT }}
       DEPLOY_USER: ${{ secrets.HOSTINGER_USER }}
       DEPLOY_TARGET_DIR: ${{ secrets.HOSTINGER_APP_DIR }}
-      DEPLOY_SERVICE: ${{ secrets.HOSTINGER_SERVICE_NAME }}
-      DEPLOY_SERVICE_USER: ${{ secrets.HOSTINGER_SERVICE_USER }}
-      DEPLOY_SERVICE_GROUP: ${{ secrets.HOSTINGER_SERVICE_GROUP }}
+      REGISTRY_USER: ${{ secrets.HOSTINGER_REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ secrets.HOSTINGER_REGISTRY_TOKEN }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: gdd-api-jar
-          path: build
+      - name: Resolve image name
+        id: image
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY}"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Prepare SSH key
         run: |
-          whoami
+          set -euo pipefail
           mkdir -p ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger
           chmod 600 ~/.ssh/hostinger
-          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          PORT=${DEPLOY_PORT:-22}
+          ssh-keyscan -p "$PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
-      - name: Transfer artifact and deploy script
+      - name: Deploy to Hostinger
+        env:
+          PORT: ${{ env.DEPLOY_PORT }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_IMAGE: ${{ steps.image.outputs.uri }}:${{ github.sha }}
         run: |
-          scp -i ~/.ssh/hostinger -P "$DEPLOY_PORT" build/gdd-api-*.jar "$DEPLOY_USER@$DEPLOY_HOST:/tmp/gdd-api.jar"
-          scp -i ~/.ssh/hostinger -P "$DEPLOY_PORT" scripts/remote/deploy-gdd-api.sh "$DEPLOY_USER@$DEPLOY_HOST:/tmp/deploy-gdd-api.sh"
-
-      - name: Check remote sudo
-        run: |
-          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; echo Remote user: \$(whoami); sudo -ln || true; SYSTEMCTL_BIN=\$(command -v systemctl || echo /bin/systemctl); echo Systemctl path: \${SYSTEMCTL_BIN}; sudo -n \"\${SYSTEMCTL_BIN}\" --version"
-
-      - name: Restart application service
-        run: |
-          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "APP_DIR='${DEPLOY_TARGET_DIR}' SERVICE_NAME='${DEPLOY_SERVICE}' SERVICE_USER='${DEPLOY_SERVICE_USER}' SERVICE_GROUP='${DEPLOY_SERVICE_GROUP}' bash /tmp/deploy-gdd-api.sh"
-
-      - name: Cleanup temporary files on remote host
-        if: always()
-        run: |
-          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "rm -f /tmp/deploy-gdd-api.sh"
+          set -euo pipefail
+          PORT=${PORT:-22}
+          ssh -i ~/.ssh/hostinger -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; cd '$DEPLOY_TARGET_DIR'; if [ -d .git ]; then git fetch --depth=1 origin '$DEPLOY_BRANCH'; git reset --hard 'origin/$DEPLOY_BRANCH'; fi; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin; fi; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env pull app; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env up -d --remove-orphans; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then docker logout ghcr.io; fi"

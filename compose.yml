@@ -1,18 +1,54 @@
 services:
+  app:
+    image: ${APP_IMAGE:-gdd-api:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+    ports:
+      - "${APP_HTTP_PORT:-8080}:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: always
+    networks:
+      - gdd-net
+
   mysql:
     image: mysql:lts
-    container_name: mysql8
+    container_name: gdd-mysql
     restart: always
+    env_file:
+      - .env
     ports:
-      - "127.0.0.1:3306:3306"
+      - "${MYSQL_EXPOSE_PORT:-3306}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ChangeMeRootPassword!
-      MYSQL_DATABASE: gdd_database
-      MYSQL_USER: user_test
-      MYSQL_PASSWORD: ChangeMeDbPassword!
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD not set}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE not set}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER not set}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD not set}
     volumes:
       - mysql_data:/var/lib/mysql
     command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - gdd-net
 
 volumes:
   mysql_data:
+
+networks:
+  gdd-net:
+    driver: bridge
