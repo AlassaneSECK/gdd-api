@@ -96,7 +96,7 @@ jobs:
 
       - name: Check remote sudo
         run: |
-          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; echo Remote user: \$(whoami); sudo -ln || true; SYSTEMCTL_BIN=\$(command -v systemctl || echo /bin/systemctl); echo Systemctl path: \${SYSTEMCTL_BIN}; sudo -n \"\${SYSTEMCTL_BIN}\" status \"$DEPLOY_SERVICE\" --no-pager"
+          ssh -i ~/.ssh/hostinger -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; echo Remote user: \$(whoami); sudo -ln || true; SYSTEMCTL_BIN=\$(command -v systemctl || echo /bin/systemctl); echo Systemctl path: \${SYSTEMCTL_BIN}; sudo -n \"\${SYSTEMCTL_BIN}\" --version"
 
       - name: Restart application service
         run: |
