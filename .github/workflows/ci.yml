@@ -101,7 +101,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger
           chmod 600 ~/.ssh/hostinger
-          PORT=${DEPLOY_PORT:-22}
+          PORT="${DEPLOY_PORT:-22}"
           ssh-keyscan -p "$PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy to Hostinger
@@ -111,5 +111,6 @@ jobs:
           DEPLOY_IMAGE: ${{ steps.image.outputs.uri }}:${{ github.sha }}
         run: |
           set -euo pipefail
-          PORT=${PORT:-22}
-          ssh -i ~/.ssh/hostinger -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; cd '$DEPLOY_TARGET_DIR'; if [ -d .git ]; then git fetch --depth=1 origin '$DEPLOY_BRANCH'; git reset --hard 'origin/$DEPLOY_BRANCH'; fi; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin; fi; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env pull app; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env up -d --remove-orphans; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then docker logout ghcr.io; fi"
+          PORT="${PORT:-22}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}.git"
+          ssh -i ~/.ssh/hostinger -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -euo pipefail; cd '$DEPLOY_TARGET_DIR'; if [ ! -d .git ]; then git init .; git remote add origin \"$REPO_URL\"; else git remote set-url origin \"$REPO_URL\"; fi; git fetch --depth=1 origin '$DEPLOY_BRANCH'; git reset --hard 'origin/$DEPLOY_BRANCH'; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin; fi; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env pull app; APP_IMAGE='$DEPLOY_IMAGE' docker compose --env-file .env up -d --remove-orphans; if [ -n '$REGISTRY_USER' ] && [ -n '$REGISTRY_TOKEN' ]; then docker logout ghcr.io; fi"
