@@ -50,7 +50,8 @@ public class SecurityConfig {
                                 "/api/docs/**",
                                 "/swagger-resources/**",
                                 "/webjars/**",
-                                "/actuator/health"
+                                "/actuator/health",
+                                "/api/hello"
                         ).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtFilter(customUserDetailsService, jwtUtils), UsernamePasswordAuthenticationFilter.class)
