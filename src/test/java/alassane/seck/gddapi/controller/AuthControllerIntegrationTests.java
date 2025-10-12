@@ -37,7 +37,7 @@ class AuthControllerIntegrationTests {
 
     @Test
     void registerShouldCreateUserAndReturnToken() throws Exception {
-        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("john", "password"));
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("john@example.com", "password"));
 
         String response = mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -49,14 +49,14 @@ class AuthControllerIntegrationTests {
 
         JsonNode json = objectMapper.readTree(response);
         assertThat(json.path("token").asText()).isNotBlank();
-        assertThat(userRepository.findByUsername("john")).isNotNull();
+        assertThat(userRepository.findByEmail("john@example.com")).isNotNull();
     }
 
     @Test
     void loginShouldAuthenticateExistingUser() throws Exception {
-        register("sara", "top-secret");
+        register("sara@example.com", "top-secret");
 
-        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("sara", "top-secret"));
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("sara@example.com", "top-secret"));
 
         String response = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -72,9 +72,9 @@ class AuthControllerIntegrationTests {
 
     @Test
     void loginShouldFailWithInvalidCredentials() throws Exception {
-        register("emma", "strong-pass");
+        register("emma@example.com", "strong-pass");
 
-        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("emma", "wrong"));
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("emma@example.com", "wrongpass"));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -82,13 +82,35 @@ class AuthControllerIntegrationTests {
                 .andExpect(status().isUnauthorized());
     }
 
-    private void register(String username, String password) throws Exception {
-        String payload = objectMapper.writeValueAsString(new AuthRequestPayload(username, password));
+    @Test
+    void registerShouldRejectExistingEmail() throws Exception {
+        register("louis@example.com", "old-pass");
+
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("louis@example.com", "new-pass"));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void registerShouldRejectInvalidEmail() throws Exception {
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload("not-an-email", "password"));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest());
+    }
+
+    private void register(String email, String password) throws Exception {
+        String payload = objectMapper.writeValueAsString(new AuthRequestPayload(email, password));
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated());
     }
 
-    private record AuthRequestPayload(String username, String password) {}
+    private record AuthRequestPayload(String email, String password) {}
 }

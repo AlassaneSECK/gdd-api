@@ -4,7 +4,9 @@ import alassane.seck.gddapi.configuration.JwtUtils;
 import alassane.seck.gddapi.entities.User;
 import alassane.seck.gddapi.repository.UserRepository;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -37,7 +39,7 @@ public class AuthController {
     public ResponseEntity<AuthResponse> authenticate(@Valid @RequestBody AuthRequest request) {
         try {
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
             String token = jwtUtils.generateToken(authentication.getName());
             return ResponseEntity.ok(new AuthResponse(token));
@@ -48,17 +50,19 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody AuthRequest request) {
-        if (userRepository.findByUsername(request.getUsername()) != null) {
+        User user = userRepository.findByEmail(request.getEmail());
+        if (user == null) {
+            user = new User();
+            user.setEmail(request.getEmail());
+            user.setRole("ROLE_USER");
+        } else {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
 
-        User user = new User();
-        user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRole("ROLE_USER");
         userRepository.save(user);
 
-        String token = jwtUtils.generateToken(user.getUsername());
+        String token = jwtUtils.generateToken(user.getEmail());
         return ResponseEntity.status(HttpStatus.CREATED).body(new AuthResponse(token));
     }
 
@@ -67,8 +71,11 @@ public class AuthController {
     @AllArgsConstructor
     public static class AuthRequest {
         @NotBlank
-        private String username;
+        @Email
+        @Size(max = 255)
+        private String email;
         @NotBlank
+        @Size(min = 8)
         private String password;
     }
 

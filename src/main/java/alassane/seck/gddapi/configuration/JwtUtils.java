@@ -23,9 +23,9 @@ public class JwtUtils {
     @Value("${app.expiration-time}")
     private long expirationTime;
 
-    public String generateToken(String username) {
+    public String generateToken(String email) {
         Map<String, Object> claims = new HashMap<>();
-        return createToken(claims, username);
+        return createToken(claims, email);
     }
 
     private String createToken(Map<String, Object> claims, String subject) {
@@ -44,15 +44,15 @@ public class JwtUtils {
     }
 
     public Boolean validateToken(String token, UserDetails userDetails) {
-        String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        String email = extractEmail(token);
+        return (email.equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
 
     private boolean isTokenExpired(String token) {
         return extractExpirationDate(token).before(new Date());
     }
 
-    public String extractUsername(String token) {
+    public String extractEmail(String token) {
         return extractClaim(token, Claims::getSubject);
     }
 
