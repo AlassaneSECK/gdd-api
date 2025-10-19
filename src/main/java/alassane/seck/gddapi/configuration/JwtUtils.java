@@ -30,6 +30,7 @@ public class JwtUtils {
     }
 
     private String createToken(Map<String, Object> claims, String subject) {
+        System.out.println("expirationTime = " +  expirationTime);
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(subject)
