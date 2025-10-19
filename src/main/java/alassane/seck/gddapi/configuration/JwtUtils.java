@@ -23,6 +23,7 @@ public class JwtUtils {
     @Value("${app.expiration-time}")
     private long expirationTime;
 
+    // Construit un token signé contenant l'adresse e-mail comme sujet (claim principal).
     public String generateToken(String email) {
         Map<String, Object> claims = new HashMap<>();
         return createToken(claims, email);
@@ -43,6 +44,7 @@ public class JwtUtils {
         return new SecretKeySpec(keyBytes, SignatureAlgorithm.HS256.getJcaName());
     }
 
+    // Vérifie que le token appartient bien à l'utilisateur connecté et qu'il n'est pas expiré.
     public Boolean validateToken(String token, UserDetails userDetails) {
         String email = extractEmail(token);
         return (email.equals(userDetails.getUsername()) && !isTokenExpired(token));

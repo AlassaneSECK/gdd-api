@@ -19,6 +19,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        // Spring Security délègue ici la récupération de l'utilisateur persistant (pour vérifier le mot de passe et charger les rôles).
         User user = userRepository.findByEmail(username);
 
         if (user == null) {

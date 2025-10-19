@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AuthController {
 
+    // Services de Spring Security utilisés pour authentifier un utilisateur et fabriquer son jeton.
     private final AuthenticationManager authenticationManager;
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
@@ -38,9 +39,11 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> authenticate(@Valid @RequestBody AuthRequest request) {
         try {
+            // Spring vérifie ici que le couple email/mot de passe correspond bien à un utilisateur existant.
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
+            // On génère un JWT signé en utilisant l’email comme identifiant principal dans le token.
             String token = jwtUtils.generateToken(authentication.getName());
             return ResponseEntity.ok(new AuthResponse(token));
         } catch (BadCredentialsException ex) {
@@ -56,12 +59,14 @@ public class AuthController {
             user.setEmail(request.getEmail());
             user.setRole("ROLE_USER");
         } else {
+            // Si l’email est déjà utilisé, on bloque l’inscription. Un flux “mot de passe oublié” prendra le relais plus tard.
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
-
+        // Toujours stocker le mot de passe chiffré avec BCrypt, jamais en clair.
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         userRepository.save(user);
 
+        // On renvoie immédiatement un token valide pour permettre à l’utilisateur fraîchement inscrit de se connecter.
         String token = jwtUtils.generateToken(user.getEmail());
         return ResponseEntity.status(HttpStatus.CREATED).body(new AuthResponse(token));
     }

@@ -27,6 +27,7 @@ public class JwtFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         final String authHeader = request.getHeader("Authorization");
 
+        // On ne traite que les requêtes contenant un header Bearer <token>.
         String email = null;
         String jwt = null;
 
@@ -36,9 +37,11 @@ public class JwtFilter extends OncePerRequestFilter {
         }
 
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            // Charge l'utilisateur depuis la base afin d'obtenir ses rôles/permissions.
             UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
 
             if (jwtUtils.validateToken(jwt, userDetails)) {
+                // Si le token est valide, on marque la requête comme authentifiée pour le reste de la chaîne Spring.
                 UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authenticationToken);
