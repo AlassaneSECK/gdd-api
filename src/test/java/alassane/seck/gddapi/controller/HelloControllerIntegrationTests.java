@@ -23,6 +23,6 @@ class HelloControllerIntegrationTests {
     void helloShouldReturnGreeting() throws Exception {
         mockMvc.perform(get("/api/hello"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Bonjour !"));
+                .andExpect(content().string("Bonjour tout le monde!"));
     }
 }
