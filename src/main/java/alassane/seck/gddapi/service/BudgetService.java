@@ -32,28 +32,14 @@ public class BudgetService {
         return toView(budget);
     }
 
-    @Transactional
-    public BudgetView setAmount(Long userId, BigDecimal amount) {
-        if (amount == null) {
-            throw new IllegalArgumentException("Le montant ne peut pas être nul.");
-        }
-        Budget budget = budgetRepository.findByUserId(userId)
-                .orElseGet(() -> createForUser(userId));
-        budget.setAvailableAmount(amount);
-        Budget saved = budgetRepository.save(budget);
-        return toView(saved);
-    }
-
-    @Transactional
-    public BudgetView applyDelta(Long userId, BigDecimal delta, String description) {
-        if (delta == null || delta.signum() == 0) {
-            throw new IllegalArgumentException("Le delta doit être non nul.");
-        }
-        BudgetEntryType type = delta.signum() >= 0 ? BudgetEntryType.INCOME : BudgetEntryType.EXPENSE;
-        BudgetUpdate update = recordEntry(userId, type, delta.abs(), null, description);
-        return update.budget();
-    }
-
+    /**
+     * Enregistre un mouvement budgétaire et synchronise le solde restant.
+     * <p>
+     * Subtilité : on crée à la volée le budget associé à l'utilisateur si nécessaire (lors du premier mouvement),
+     * puis on persiste l'entrée et on met à jour le champ `availableAmount`. Une dépense entraîne une
+     * soustraction, un revenu une addition. Le calcul reste localisé ici pour éviter toute divergence avec
+     * d'autres mises à jour manuelles.
+     */
     @Transactional
     public BudgetUpdate recordEntry(Long userId,
                                     BudgetEntryType type,
@@ -76,10 +62,15 @@ public class BudgetService {
         entry.setAmount(amount);
         entry.setDescription(description);
         entry.setOccurredAt(occurredAt);
+        // Important : on stocke l'entrée avant de recalculer le solde, afin de disposer d'un identifiant
+        // et d'un horodatage cohérents dans la réponse.
         BudgetEntry savedEntry = budgetEntryRepository.save(entry);
         budget.getEntries().add(savedEntry);
 
         BigDecimal delta = type == BudgetEntryType.INCOME ? amount : amount.negate();
+        // `availableAmount` évolue exclusivement au fil des entrées : une dépense retire le montant,
+        // un revenu l'ajoute. Ce calcul doit impérativement rester atomique (transactionnel) pour éviter
+        // les courses critiques si plusieurs écritures arrivent en même temps.
         BigDecimal updated = budget.getAvailableAmount().add(delta);
         budget.setAvailableAmount(updated);
         Budget savedBudget = budgetRepository.save(budget);
@@ -101,6 +92,8 @@ public class BudgetService {
                 .orElseThrow(() -> new EntityNotFoundException("Utilisateur introuvable : " + userId));
         Budget existing = user.getBudget();
         if (existing != null) {
+            // Cas limite : si un budget a été attaché via un autre flux (ex: synchronisation), on le réutilise
+            // pour éviter de dupliquer les enregistrements et de fausser le solde courant.
             return existing;
         }
         Budget budget = new Budget();

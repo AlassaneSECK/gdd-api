@@ -17,8 +17,6 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -43,25 +41,25 @@ class BudgetControllerIntegrationTests {
     }
 
     @Test
-    void shouldCreateBudgetOnTheFlyAndApplyDelta() throws Exception {
+    void shouldCreateBudgetFromIncomeEntries() throws Exception {
         String email = "budgeter@example.com";
         String token = register(email, "password123");
         Long userId = userRepository.findByEmail(email).getId();
 
-        applyDelta(userId, token, BigDecimal.valueOf(1000), "Salaire");
-        mockMvc.perform(patch("/api/users/{userId}/budget", userId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload(new DeltaRequest(BigDecimal.valueOf(500), "Prime"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.availableAmount").value(1500));
+        Instant firstIncomeAt = Instant.now().minusSeconds(600);
+        Instant secondIncomeAt = Instant.now();
 
-        mockMvc.perform(get("/api/users/{userId}/budget", userId)
+        // Deux revenus successifs doivent cumuler le solde sans action manuelle sur /api/budget.
+        createEntry(token, new EntryRequest("INCOME", BigDecimal.valueOf(1000), firstIncomeAt, "Salaire"));
+        createEntry(token, new EntryRequest("INCOME", BigDecimal.valueOf(500), secondIncomeAt, "Prime"));
+
+        mockMvc.perform(get("/api/budget")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(userId))
                 .andExpect(jsonPath("$.availableAmount").value(1500));
 
-        mockMvc.perform(get("/api/users/{userId}/budget/entries", userId)
+        mockMvc.perform(get("/api/budget/entries")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
@@ -74,57 +72,28 @@ class BudgetControllerIntegrationTests {
     }
 
     @Test
-    void shouldOverrideBudgetWithPut() throws Exception {
-        String email = "setter@example.com";
-        String token = register(email, "password123");
-        Long userId = userRepository.findByEmail(email).getId();
-
-        applyDelta(userId, token, BigDecimal.valueOf(250), "Allocation initiale");
-
-        mockMvc.perform(put("/api/users/{userId}/budget", userId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload(new AmountRequest(BigDecimal.valueOf(2000)))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.availableAmount").value(2000));
-    }
-
-    @Test
-    void shouldReturnNotFoundWhenBudgetDoesNotExistYet() throws Exception {
-        String email = "missing@example.com";
-        String token = register(email, "password123");
-        Long userId = userRepository.findByEmail(email).getId();
-
-        mockMvc.perform(get("/api/users/{userId}/budget", userId)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void shouldRecordManualEntryAndReflectInBudget() throws Exception {
+    void shouldDecreaseBudgetWhenExpenseRecorded() throws Exception {
         String email = "entries@example.com";
         String token = register(email, "password123");
-        Long userId = userRepository.findByEmail(email).getId();
 
-        Instant occurredAt = Instant.now().plusSeconds(3600);
+        Instant incomeAt = Instant.now().minusSeconds(120);
+        Instant expenseAt = Instant.now();
 
-        mockMvc.perform(patch("/api/users/{userId}/budget", userId)
+        // On crédite le budget...
+        createEntry(token, new EntryRequest("INCOME", BigDecimal.valueOf(1000), incomeAt, "Salaire"));
+
+        // ...puis on débite via une dépense : la réponse doit contenir le solde recalculé (800).
+        mockMvc.perform(post("/api/budget/entries")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload(new DeltaRequest(BigDecimal.valueOf(1000), "Salaire"))))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/users/{userId}/budget/entries", userId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload(new EntryRequest("EXPENSE", BigDecimal.valueOf(200), occurredAt, "Courses"))))
+                        .content(payload(new EntryRequest("EXPENSE", BigDecimal.valueOf(200), expenseAt, "Courses"))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.entry.type").value("EXPENSE"))
                 .andExpect(jsonPath("$.entry.amount").value(200))
                 .andExpect(jsonPath("$.entry.description").value("Courses"))
                 .andExpect(jsonPath("$.budget.availableAmount").value(800));
 
-        mockMvc.perform(get("/api/users/{userId}/budget/entries", userId)
+        mockMvc.perform(get("/api/budget/entries")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
@@ -134,14 +103,30 @@ class BudgetControllerIntegrationTests {
                 .andExpect(jsonPath("$.content[1].type").value("INCOME"))
                 .andExpect(jsonPath("$.content[1].amount").value(1000))
                 .andExpect(jsonPath("$.content[1].description").value("Salaire"));
+
+        mockMvc.perform(get("/api/budget")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableAmount").value(800));
     }
 
-    private void applyDelta(Long userId, String token, BigDecimal delta, String description) throws Exception {
-        mockMvc.perform(patch("/api/users/{userId}/budget", userId)
+    @Test
+    void shouldReturnNotFoundWhenBudgetDoesNotExistYet() throws Exception {
+        String email = "missing@example.com";
+        String token = register(email, "password123");
+
+        mockMvc.perform(get("/api/budget")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    private void createEntry(String token, EntryRequest request) throws Exception {
+        // Utilitaire : chaque appel valide que l'API retourne bien 201 et déclenche la mise à jour du budget.
+        mockMvc.perform(post("/api/budget/entries")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload(new DeltaRequest(delta, description))))
-                .andExpect(status().isOk());
+                        .content(payload(request)))
+                .andExpect(status().isCreated());
     }
 
     private String register(String email, String password) throws Exception {
@@ -163,10 +148,6 @@ class BudgetControllerIntegrationTests {
     }
 
     private record AuthRequestPayload(String email, String password) {}
-
-    private record DeltaRequest(BigDecimal delta, String description) {}
-
-    private record AmountRequest(BigDecimal amount) {}
 
     private record EntryRequest(String type, BigDecimal amount, Instant occurredAt, String description) {}
 }

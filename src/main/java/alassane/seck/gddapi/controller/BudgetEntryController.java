@@ -1,6 +1,7 @@
 package alassane.seck.gddapi.controller;
 
 import alassane.seck.gddapi.entities.BudgetEntryType;
+import alassane.seck.gddapi.security.AuthenticatedUser;
 import alassane.seck.gddapi.service.BudgetService;
 import alassane.seck.gddapi.service.BudgetService.BudgetEntryView;
 import alassane.seck.gddapi.service.BudgetService.BudgetUpdate;
@@ -17,9 +18,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,7 +32,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @RestController
-@RequestMapping("/api/users/{userId}/budget/entries")
+@RequestMapping("/api/budget/entries")
 @Validated
 @RequiredArgsConstructor
 public class BudgetEntryController {
@@ -39,7 +40,7 @@ public class BudgetEntryController {
     private final BudgetService budgetService;
 
     @GetMapping
-    public ResponseEntity<Page<BudgetEntryResponse>> listEntries(@PathVariable Long userId,
+    public ResponseEntity<Page<BudgetEntryResponse>> listEntries(@AuthenticationPrincipal AuthenticatedUser currentUser,
                                                                  @RequestParam(defaultValue = "0") int page,
                                                                  @RequestParam(defaultValue = "20") int size) {
         int safePage = Math.max(0, page);
@@ -47,7 +48,10 @@ public class BudgetEntryController {
         Sort sort = Sort.by(Sort.Order.desc("occurredAt"), Sort.Order.desc("id"));
         Pageable pageable = PageRequest.of(safePage, safeSize, sort);
         try {
-            Page<BudgetEntryResponse> response = budgetService.listEntries(userId, pageable)
+            // Chaque requête est évaluée dans le contexte de l'utilisateur authentifié.
+            // Le `Sort` garantit un rendu stable (dernier mouvement en tête), même lorsque plusieurs
+            // entrées partagent le même horodatage.
+            Page<BudgetEntryResponse> response = budgetService.listEntries(currentUser.getId(), pageable)
                     .map(this::toResponse);
             return ResponseEntity.ok(response);
         } catch (EntityNotFoundException ex) {
@@ -56,11 +60,14 @@ public class BudgetEntryController {
     }
 
     @PostMapping
-    public ResponseEntity<BudgetEntryCreatedResponse> createEntry(@PathVariable Long userId,
+    public ResponseEntity<BudgetEntryCreatedResponse> createEntry(@AuthenticationPrincipal AuthenticatedUser currentUser,
                                                                   @Valid @RequestBody CreateBudgetEntryRequest request) {
         try {
+            // Subtilité : `recordEntry` se charge de créer le budget s'il n'existe pas encore,
+            // puis de recalculer le solde. Le contrôleur renvoie à la fois l'entrée normalisée
+            // et le résumé du budget pour éviter un appel additionnel côté client.
             BudgetUpdate update = budgetService.recordEntry(
-                    userId,
+                    currentUser.getId(),
                     request.type(),
                     request.amount(),
                     request.occurredAt(),

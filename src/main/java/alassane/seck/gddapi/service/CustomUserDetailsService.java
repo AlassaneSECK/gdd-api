@@ -2,6 +2,7 @@ package alassane.seck.gddapi.service;
 
 import alassane.seck.gddapi.entities.User;
 import alassane.seck.gddapi.repository.UserRepository;
+import alassane.seck.gddapi.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -9,7 +10,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +26,15 @@ public class CustomUserDetailsService implements UserDetailsService {
         if (user == null) {
             throw new UsernameNotFoundException("User not found with email: " + username);
         }
-        return new org.springframework.security.core.userdetails.User(user.getEmail(), user.getPassword(),
-                Collections.singletonList(new SimpleGrantedAuthority(user.getRole())));
+
+        // On encapsule l'utilisateur dans `AuthenticatedUser` afin de conserver son identifiant interne.
+        // Cela évite de repasser par une requête SQL pour retrouver l'id à chaque fois que l'on consomme
+        // le principal dans les contrôleurs (ex: budget).
+        return new AuthenticatedUser(
+                user.getId(),
+                user.getEmail(),
+                user.getPassword(),
+                List.of(new SimpleGrantedAuthority(user.getRole()))
+        );
     }
 }
