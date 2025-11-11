@@ -13,7 +13,7 @@ services:
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
     ports:
-      - "${APP_HTTP_PORT:-8080}:8080"
+      - "127.0.0.1:${APP_HTTP_PORT:-8080}:8080"
     depends_on:
       mysql:
         condition: service_healthy
